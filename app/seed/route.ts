@@ -11,16 +11,30 @@ async function seedUsers() {
       id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
       email TEXT NOT NULL UNIQUE,
-      password TEXT NOT NULL
+      password TEXT NOT NULL,
+      role VARCHAR(50) DEFAULT 'user'
     );
   `;
+
+  // Add role column if it doesn't exist
+  try {
+    await sql`
+      ALTER TABLE users
+      ADD COLUMN role VARCHAR(50) DEFAULT 'user';
+    `;
+  } catch (error: any) {
+    // Column already exists, ignore error
+    if (error.code !== '42701') {
+      console.error('Error adding role column:', error);
+    }
+  }
 
   const insertedUsers = await Promise.all(
     users.map(async (user) => {
       const hashedPassword = await bcrypt.hash(user.password, 10);
       return sql`
-        INSERT INTO users (id, name, email, password)
-        VALUES (${user.id}, ${user.name}, ${user.email}, ${hashedPassword})
+        INSERT INTO users (id, name, email, password, role)
+        VALUES (${user.id}, ${user.name}, ${user.email}, ${hashedPassword}, 'user')
         ON CONFLICT (id) DO NOTHING;
       `;
     }),
@@ -101,6 +115,27 @@ async function seedRevenue() {
   return insertedRevenue;
 }
 
+async function seedAdmin() {
+  const email = 'admin@example.com';
+  const password = 'admin1234';
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  const existingAdmin = await sql`
+    SELECT * FROM users WHERE email = ${email}
+  `;
+
+  if (existingAdmin.length === 0) {
+    await sql`
+      INSERT INTO users (id, name, email, password, role)
+      VALUES (uuid_generate_v4(), 'Admin', ${email}, ${hashedPassword}, 'admin')
+      ON CONFLICT (email) DO NOTHING;
+    `;
+    return { created: true, email, password };
+  }
+
+  return { created: false, email };
+}
+
 export async function GET() {
   try {
     const result = await sql.begin((sql) => [
@@ -110,7 +145,12 @@ export async function GET() {
       seedRevenue(),
     ]);
 
-    return Response.json({ message: 'Database seeded successfully' });
+    const adminResult = await seedAdmin();
+
+    return Response.json({
+      message: 'Database seeded successfully',
+      admin: adminResult,
+    });
   } catch (error) {
     return Response.json({ error }, { status: 500 });
   }
