@@ -35,8 +35,8 @@ export async function fetchRevenue() {
 export async function fetchLatestInvoices() {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     try {
-        const data = await sql<LatestInvoiceRaw[]>`
-      SELECT invoices.amount, customers.name, customers.image_url, customers.email, invoices.id
+        const data = await sql<(Omit<LatestInvoiceRaw, 'image_url'> & { customer_id: string })[]>`
+      SELECT invoices.amount, customers.name, customers.id as customer_id, customers.email, invoices.id
       FROM invoices
       JOIN customers ON invoices.customer_id = customers.id
       ORDER BY invoices.date DESC
@@ -44,6 +44,7 @@ export async function fetchLatestInvoices() {
 
         const latestInvoices = data.map((invoice) => ({
             ...invoice,
+            image_url: `/api/image/customer/${invoice.customer_id}`,
             amount: formatCurrency(invoice.amount),
         }));
         return latestInvoices;
@@ -97,7 +98,7 @@ export async function fetchFilteredInvoices(
     const offset = (currentPage - 1) * ITEMS_PER_PAGE;
 
     try {
-        const invoices = await sql<InvoicesTable[]>`
+        const invoices = await sql<(Omit<InvoicesTable, 'image_url'> & { customer_id: string })[]>`
       SELECT
         invoices.id,
         invoices.amount,
@@ -105,7 +106,7 @@ export async function fetchFilteredInvoices(
         invoices.status,
         customers.name,
         customers.email,
-        customers.image_url
+        invoices.customer_id
       FROM invoices
       JOIN customers ON invoices.customer_id = customers.id
       WHERE
@@ -118,7 +119,13 @@ export async function fetchFilteredInvoices(
       LIMIT ${ITEMS_PER_PAGE} OFFSET ${offset}
     `;
 
-        return invoices;
+        // Map to add image_url derived from customer_id
+        const invoicesWithImage = invoices.map((invoice) => ({
+            ...invoice,
+            image_url: `/api/image/customer/${invoice.customer_id}`,
+        }));
+
+        return invoicesWithImage;
     } catch (error) {
         console.error("Database Error:", error);
         throw new Error("Failed to fetch invoices.");
@@ -190,12 +197,11 @@ export async function fetchCustomers() {
 
 export async function fetchFilteredCustomers(query: string) {
     try {
-        const data = await sql<CustomersTableType[]>`
+        const data = await sql<(Omit<CustomersTableType, 'image_url'> & { id: string })[]>`
 		SELECT
 		  customers.id,
 		  customers.name,
 		  customers.email,
-		  customers.image_url,
           COUNT(invoices.id) AS total_invoices,
           COALESCE(SUM(CASE WHEN invoices.status = 'pending' THEN invoices.amount ELSE 0 END), 0) AS total_pending,
           COALESCE(SUM(CASE WHEN invoices.status = 'paid' THEN invoices.amount ELSE 0 END), 0) AS total_paid
@@ -204,12 +210,13 @@ export async function fetchFilteredCustomers(query: string) {
 		WHERE
 		  customers.name ILIKE ${`%${query}%`} OR
         customers.email ILIKE ${`%${query}%`}
-		GROUP BY customers.id, customers.name, customers.email, customers.image_url
+		GROUP BY customers.id, customers.name, customers.email
 		ORDER BY customers.name ASC
 	  `;
 
         const customers = data.map((customer) => ({
             ...customer,
+            image_url: `/api/image/customer/${customer.id}`,
             total_pending: formatCurrency(customer.total_pending),
             total_paid: formatCurrency(customer.total_paid),
         }));
@@ -223,13 +230,19 @@ export async function fetchFilteredCustomers(query: string) {
 
 export async function fetchCustomerById(id: string) {
     try {
-        const data = await sql<Customer[]>`
-      SELECT id, name, email, image_url
+        const data = await sql<(Omit<Customer, 'image_url'> & { id: string })[]>`
+      SELECT id, name, email
       FROM customers
       WHERE id = ${id}
     `;
 
-        return data[0];
+        const customer = data[0];
+        return customer
+            ? {
+                  ...customer,
+                  image_url: `/api/image/customer/${customer.id}`,
+              }
+            : undefined;
     } catch (error) {
         console.error("Database Error:", error);
         throw new Error("Failed to fetch customer.");
