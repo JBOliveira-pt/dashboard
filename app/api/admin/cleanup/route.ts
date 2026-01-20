@@ -1,8 +1,6 @@
 import { auth } from "@/auth";
 import postgres from "postgres";
 import { NextRequest, NextResponse } from "next/server";
-import { promises as fs } from "fs";
-import path from "path";
 
 const sql = postgres(process.env.POSTGRES_URL!, { ssl: "require" });
 
@@ -34,7 +32,6 @@ export async function POST(request: NextRequest) {
 
     const results = {
       deletedCustomers: [] as string[],
-      deletedImages: [] as string[],
       errors: [] as string[],
     };
 
@@ -43,7 +40,7 @@ export async function POST(request: NextRequest) {
       try {
         // Buscar o customer
         const customers = await sql`
-          SELECT id, image_url FROM customers WHERE name = ${customerName}
+          SELECT id FROM customers WHERE name = ${customerName}
         `;
 
         if (customers.length === 0) {
@@ -53,28 +50,10 @@ export async function POST(request: NextRequest) {
 
         const customer = customers[0];
 
-        // Deletar imagem local se existir
-        if (customer.image_url && customer.image_url.startsWith("/uploads/")) {
-          try {
-            const imagePath = path.join(
-              process.cwd(),
-              "public",
-              customer.image_url
-            );
-            await fs.unlink(imagePath);
-            results.deletedImages.push(customer.image_url);
-            console.log(`Imagem deletada: ${customer.image_url}`);
-          } catch (err) {
-            console.log(
-              `Imagem não encontrada ou já deletada: ${customer.image_url}`
-            );
-          }
-        }
-
         // Deletar invoices associadas
         await sql`DELETE FROM invoices WHERE customer_id = ${customer.id}`;
 
-        // Deletar o customer
+        // Deletar o customer (photo será removido automaticamente via cascade)
         await sql`DELETE FROM customers WHERE id = ${customer.id}`;
 
         results.deletedCustomers.push(customerName);
@@ -89,7 +68,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       message: "Limpeza concluída",
       deletedCustomers: results.deletedCustomers,
-      deletedImages: results.deletedImages,
       errors: results.errors,
     });
   } catch (error) {

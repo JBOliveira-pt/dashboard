@@ -75,22 +75,49 @@ export type CustomerState = {
     message?: string | null;
 };
 
-async function persistUpload(file: File | null) {
+// Maximum photo size: 5MB
+const MAX_PHOTO_SIZE = 5 * 1024 * 1024;
+
+async function persistPhotoToDatabase(
+    file: File | null,
+    entityType: "customer" | "user",
+    entityId: string,
+) {
     if (!file || file.size === 0) {
         return null;
     }
 
+    if (file.size > MAX_PHOTO_SIZE) {
+        throw new Error(
+            `Photo size exceeds ${MAX_PHOTO_SIZE / 1024 / 1024}MB limit`,
+        );
+    }
+
     const buffer = Buffer.from(await file.arrayBuffer());
-    const uploadsDir = path.join(process.cwd(), "public", "uploads");
-    await fs.mkdir(uploadsDir, { recursive: true });
 
-    const extension = path.extname(file.name) || ".bin";
-    const filename = `${crypto.randomUUID()}${extension}`;
-    const filepath = path.join(uploadsDir, filename);
+    // Insert photo into the database
+    const tableName = entityType === "customer" ? "customers" : "users";
+    await sql`
+        UPDATE ${sql(tableName)}
+        SET photo = ${buffer}
+        WHERE id = ${entityId}
+    `;
 
-    await fs.writeFile(filepath, buffer);
+    return `/api/image/${entityType}/${entityId}`;
+}
 
-    return `/uploads/${filename}`;
+async function saveCustomerPhoto(
+    file: File | null,
+    customerId: string,
+): Promise<string | null> {
+    return persistPhotoToDatabase(file, "customer", customerId);
+}
+
+async function saveUserPhoto(
+    file: File | null,
+    userId: string,
+): Promise<string | null> {
+    return persistPhotoToDatabase(file, "user", userId);
 }
 
 export async function authenticate(
@@ -243,20 +270,31 @@ export async function createCustomer(
         };
     }
 
-    const uploadedPath = await persistUpload(imageFile);
-
     const { firstName, lastName, email } = validatedFields.data;
     const fullName = `${firstName} ${lastName}`.trim().replace(/\s+/g, " ");
 
+    let customerId: string;
     try {
-        await sql`
-      INSERT INTO customers (id, name, email, image_url)
-      VALUES (gen_random_uuid(), ${fullName}, ${email}, ${uploadedPath})
+        const result = await sql`
+      INSERT INTO customers (id, name, email)
+      VALUES (gen_random_uuid(), ${fullName}, ${email})
+      RETURNING id
     `;
+        customerId = result[0].id;
     } catch (error) {
         console.error(error);
         return {
             message: "Database Error: Failed to create customer.",
+        };
+    }
+
+    // Save photo after customer is created
+    try {
+        await saveCustomerPhoto(imageFile, customerId);
+    } catch (error) {
+        console.error(error);
+        return {
+            message: `Failed to upload photo: ${error instanceof Error ? error.message : "Unknown error"}`,
         };
     }
 
@@ -299,20 +337,28 @@ export async function updateCustomer(
         };
     }
 
-    const uploadedPath = await persistUpload(imageFile);
-
     const { firstName, lastName, email } = validatedFields.data;
     const fullName = `${firstName} ${lastName}`.trim().replace(/\s+/g, " ");
 
     try {
         await sql`
       UPDATE customers
-      SET name = ${fullName}, email = ${email}, image_url = ${uploadedPath}
+      SET name = ${fullName}, email = ${email}
       WHERE id = ${id}
     `;
     } catch (error) {
         console.error(error);
         return { message: "Database Error: Failed to update customer." };
+    }
+
+    // Save photo after customer is updated
+    try {
+        await saveCustomerPhoto(imageFile, id);
+    } catch (error) {
+        console.error(error);
+        return {
+            message: `Failed to upload photo: ${error instanceof Error ? error.message : "Unknown error"}`,
+        };
     }
 
     revalidatePath("/dashboard/customers");
@@ -406,12 +452,6 @@ export async function createUser(prevState: UserState, formData: FormData) {
     }
 
     const imageFile = formData.get("imageFile");
-    let uploadedPath = "/customers/default-avatar.png";
-
-    if (imageFile instanceof File && imageFile.size > 0) {
-        uploadedPath = (await persistUpload(imageFile)) || uploadedPath;
-    }
-
     const { firstName, lastName, email, password, role } = validatedFields.data;
     const fullName = `${firstName} ${lastName}`.trim().replace(/\s+/g, " ");
 
@@ -419,16 +459,31 @@ export async function createUser(prevState: UserState, formData: FormData) {
     const bcrypt = require("bcrypt");
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    let userId: string;
     try {
-        await sql`
+        const result = await sql`
             INSERT INTO users (id, name, email, password, role)
             VALUES (gen_random_uuid(), ${fullName}, ${email}, ${hashedPassword}, ${role})
+            RETURNING id
         `;
+        userId = result[0].id;
     } catch (error) {
         console.error(error);
         return {
             message: "Database Error: Failed to create user.",
         };
+    }
+
+    // Save photo if provided
+    if (imageFile instanceof File && imageFile.size > 0) {
+        try {
+            await saveUserPhoto(imageFile, userId);
+        } catch (error) {
+            console.error(error);
+            return {
+                message: `Failed to upload photo: ${error instanceof Error ? error.message : "Unknown error"}`,
+            };
+        }
     }
 
     revalidatePath("/dashboard/users");
@@ -486,6 +541,19 @@ export async function updateUser(
     } catch (error) {
         console.error(error);
         return { message: "Database Error: Failed to update user." };
+    }
+
+    // Save photo if provided
+    const imageFile = formData.get("imageFile");
+    if (imageFile instanceof File && imageFile.size > 0) {
+        try {
+            await saveUserPhoto(imageFile, id);
+        } catch (error) {
+            console.error(error);
+            return {
+                message: `Failed to upload photo: ${error instanceof Error ? error.message : "Unknown error"}`,
+            };
+        }
     }
 
     revalidatePath("/dashboard/users");
