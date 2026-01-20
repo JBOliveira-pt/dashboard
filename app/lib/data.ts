@@ -9,7 +9,7 @@ import {
     Revenue,
     User,
 } from "./definitions";
-import { formatCurrency } from "./utils";
+import { formatCurrency, formatDateToLocal } from "./utils";
 
 const sql = postgres(process.env.POSTGRES_URL!, { ssl: "require" });
 
@@ -38,7 +38,7 @@ export async function fetchLatestInvoices() {
         const data = await sql<
             (Omit<LatestInvoiceRaw, "image_url"> & { customer_id: string })[]
         >`
-      SELECT invoices.amount, customers.name, customers.id as customer_id, customers.email, invoices.id
+            SELECT invoices.amount, invoices.date, customers.name, customers.id as customer_id, customers.email, invoices.id
       FROM invoices
       JOIN customers ON invoices.customer_id = customers.id
       ORDER BY invoices.date DESC
@@ -47,6 +47,7 @@ export async function fetchLatestInvoices() {
         const latestInvoices = data.map((invoice) => ({
             ...invoice,
             image_url: `/api/image/customer/${invoice.customer_id}`,
+            date: formatDateToLocal(invoice.date),
             amount: formatCurrency(invoice.amount),
         }));
         return latestInvoices;
@@ -164,7 +165,8 @@ export async function fetchInvoiceById(id: string) {
         invoices.id,
         invoices.customer_id,
         invoices.amount,
-        invoices.status
+                invoices.status,
+                invoices.date
       FROM invoices
       WHERE invoices.id = ${id};
     `;

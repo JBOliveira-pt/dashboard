@@ -25,7 +25,7 @@ export default async function LatestInvoices() {
                                     "flex flex-row items-center justify-between py-4",
                                     {
                                         "border-t": i !== 0,
-                                    }
+                                    },
                                 )}
                             >
                                 <div className="flex items-center">
@@ -45,10 +45,15 @@ export default async function LatestInvoices() {
                                         </p>
                                     </div>
                                 </div>
-                                <p
-                                    className={`${lusitana.className} truncate text-sm font-medium md:text-base`}
-                                >
-                                    {invoice.amount}
+                                <p className="flex flex-col items-end text-right">
+                                    <span className="text-xs text-gray-500 md:text-sm">
+                                        {invoice.date}
+                                    </span>
+                                    <span
+                                        className={`${lusitana.className} truncate text-sm font-medium md:text-base`}
+                                    >
+                                        {invoice.amount}
+                                    </span>
                                 </p>
                             </div>
                         );

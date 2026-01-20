@@ -15,6 +15,7 @@ import { useActionState } from "react";
 export default function Form({ customers }: { customers: CustomerField[] }) {
     const initialState: State = { message: null, errors: {} };
     const [state, formAction] = useActionState(createInvoice, initialState);
+    const today = new Date().toISOString().split("T")[0];
 
     return (
         <form action={formAction}>
@@ -84,6 +85,39 @@ export default function Form({ customers }: { customers: CustomerField[] }) {
                             />
                             <CurrencyDollarIcon className="pointer-events-none absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-gray-500 peer-focus:text-gray-900" />
                         </div>
+                    </div>
+                </div>
+
+                {/* Invoice Date */}
+                <div className="mb-4">
+                    <label
+                        htmlFor="date"
+                        className="mb-2 block text-sm font-medium"
+                    >
+                        Invoice date
+                    </label>
+                    <div className="relative mt-2 rounded-md">
+                        <div className="relative">
+                            <input
+                                id="date"
+                                name="date"
+                                type="date"
+                                defaultValue={today}
+                                className="peer block w-full rounded-md border border-gray-200 py-2 px-3 text-sm outline-2 placeholder:text-gray-500"
+                                required
+                            />
+                        </div>
+                    </div>
+                    <div id="date-error" aria-live="polite" aria-atomic="true">
+                        {state.errors?.date &&
+                            state.errors.date.map((error: string) => (
+                                <p
+                                    className="mt-2 text-sm text-red-500"
+                                    key={error}
+                                >
+                                    {error}
+                                </p>
+                            ))}
                     </div>
                 </div>
 
