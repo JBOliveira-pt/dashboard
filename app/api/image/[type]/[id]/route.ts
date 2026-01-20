@@ -5,10 +5,10 @@ const sql = postgres(process.env.POSTGRES_URL!, { ssl: "require" });
 
 export async function GET(
     request: NextRequest,
-    { params }: { params: { type: string; id: string } },
+    { params }: { params: Promise<{ type: string; id: string }> },
 ) {
     try {
-        const { type, id } = params;
+        const { type, id } = await params;
 
         // Validate entity type
         if (type !== "customer" && type !== "user") {
